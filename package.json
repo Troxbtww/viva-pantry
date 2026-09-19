@@ -1,0 +1,20 @@
+{
+  "name": "viva-pantry",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Private nutrition and weekly price records for Viva groceries",
+  "scripts": {
+    "build": "node scripts/build-vendor.mjs",
+    "test": "node --test tests/*.test.cjs tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.116.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "pdfjs-dist": "6.3.289",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "esbuild": "0.28.2"
+  }
+}

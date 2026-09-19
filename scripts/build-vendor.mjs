@@ -1,0 +1,18 @@
+import {build} from 'esbuild';
+import {cp,mkdir,readdir,copyFile} from 'node:fs/promises';
+import {join} from 'node:path';
+const vendor='static/vendor';
+await mkdir(vendor,{recursive:true});
+await build({stdin:{contents:'import * as supabase from "@supabase/supabase-js"; window.supabase=supabase;',resolveDir:process.cwd()},bundle:true,format:'iife',platform:'browser',minify:true,outfile:join(vendor,'supabase.js')});
+await mkdir(join(vendor,'pdfjs'),{recursive:true});
+for(const file of ['pdf.mjs','pdf.worker.mjs']) await copyFile(join('node_modules/pdfjs-dist/build',file),join(vendor,'pdfjs',file));
+await cp('node_modules/pdfjs-dist/cmaps',join(vendor,'pdfjs/cmaps'),{recursive:true});
+await cp('node_modules/pdfjs-dist/standard_fonts',join(vendor,'pdfjs/standard_fonts'),{recursive:true});
+await cp('node_modules/pdfjs-dist/wasm',join(vendor,'pdfjs/wasm'),{recursive:true});
+await mkdir(join(vendor,'tesseract/core'),{recursive:true});
+await mkdir(join(vendor,'tesseract/lang'),{recursive:true});
+await copyFile('node_modules/tesseract.js/dist/tesseract.min.js',join(vendor,'tesseract.min.js'));
+await copyFile('node_modules/tesseract.js/dist/worker.min.js',join(vendor,'tesseract/worker.min.js'));
+for(const file of await readdir('node_modules/tesseract.js-core')) if(/\.wasm(?:\.js)?$/.test(file)) await copyFile(join('node_modules/tesseract.js-core',file),join(vendor,'tesseract/core',file));
+await copyFile('node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',join(vendor,'tesseract/lang/eng.traineddata.gz'));
+console.log('Browser libraries and English OCR model copied into static/vendor.');
