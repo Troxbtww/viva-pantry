@@ -14,7 +14,7 @@ As checked on 19 September 2026, the Supabase Free plan includes 500 MB database
 
 ## Using the tracker
 
-1. Add an item with the exact brand, variant, pack size, and multipack count. Upload its front/package photo, nutrition label and price-tag photo when available.
+1. Add an item with the exact brand, variant, pack size, and multipack count. Upload its front/package photo, nutrition label and price-tag photo when available. You can also copy an image and press Ctrl+V (Command+V on Mac) anywhere in the food editor, or use Paste image. Review the attached images and save the food.
 2. Review nutrition suggestions against the original. Check the basis (per 100 g, 100 ml, or serving) and units. Blank means unknown, zero stays zero, and values such as `<0.5` are supported.
 3. Record the first dated price as regular, offer, or paid.
 4. Open Weekly offers, upload Viva's PDF, enter its actual offer dates, and review each matched product, price and source page. Only checked rows are saved; manual entry is also available.
