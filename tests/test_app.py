@@ -317,7 +317,7 @@ def test_password_protects_all_private_routes_and_logout_revokes_session(tmp_pat
     record = price(authenticated, product['id'])
     anonymous = private_app.test_client()
     replacements = {'<int:item_id>': str(product['id']), '<int:source_id>': str(source['id']),
-                    '<int:price_id>': str(record['id'])}
+                    '<int:price_id>': str(record['id']), '<path:asset>': 'styles.css'}
     checked = set()
     # Enumerating the routing table makes newly added private endpoints part of this boundary test.
     for route in private_app.url_map.iter_rules():
