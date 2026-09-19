@@ -103,6 +103,54 @@ def test_item_edits_keep_nutrition_versions_photos_and_price_history(client, app
     assert reopened.get(f"/api/items/{initial['id']}").get_json() == response.get_json()
 
 
+def test_favorites_round_trip_without_changing_food_records(client, app):
+    source = upload(client)
+    product = item(client, nutrition=label(), source_ids=[source['id']], notes='Keep this note')
+    assert product['is_favorite'] is False
+    price(client, product['id'])
+    before = client.get(f"/api/items/{product['id']}").get_json()
+    for favorite in (True, False, True):
+        response = client.put(f"/api/items/{product['id']}", json={'is_favorite': favorite})
+        assert response.status_code == 200
+        updated = response.get_json()
+        assert updated['is_favorite'] is favorite
+        for key in before.keys() - {'is_favorite', 'updated_at'}:
+            assert updated[key] == before[key]
+    response = client.put(f"/api/items/{product['id']}", json={'name': 'Favorite oats'})
+    assert response.get_json()['is_favorite'] is True
+    reopened = create_app(data_dir=app.config['DATA_DIR'], testing=True).test_client()
+    assert reopened.get(f"/api/items/{product['id']}").get_json() == response.get_json()
+    assert reopened.get('/api/items').get_json()['items'][0]['is_favorite'] is True
+    assert item(client, name='New favorite', is_favorite=True)['is_favorite'] is True
+
+
+@pytest.mark.parametrize('bad_favorite', [None, 0, 1, 'true', 'false', '', [], {}])
+def test_favorites_reject_non_boolean_values_without_mutation(client, bad_favorite):
+    product = item(client, is_favorite=True)
+    response = client.put(f"/api/items/{product['id']}", json={'is_favorite': bad_favorite})
+    assert response.status_code == 400
+    assert 'true or false' in response.get_json()['error']
+    assert client.get(f"/api/items/{product['id']}").get_json() == product
+    response = client.post('/api/items', json={'name': 'Invalid favorite', 'is_favorite': bad_favorite})
+    assert response.status_code == 400
+    assert len(client.get('/api/items').get_json()['items']) == 1
+
+
+def test_favorite_migration_preserves_existing_library(client, app):
+    source = upload(client)
+    product = item(client, nutrition=label(), source_ids=[source['id']], notes='Legacy food')
+    price(client, product['id'])
+    before = client.get('/api/items').get_json()
+    with closing(sqlite3.connect(app.config['DATA_DIR'] / 'viva.sqlite3')) as database:
+        database.execute('ALTER TABLE items DROP COLUMN is_favorite')
+        database.commit()
+        assert 'is_favorite' not in {column[1] for column in database.execute('PRAGMA table_info(items)')}
+    for _ in range(2):
+        reopened = create_app(data_dir=app.config['DATA_DIR'], testing=True).test_client()
+        assert reopened.get('/api/items').get_json() == before
+        assert reopened.get(source['url']).data == image_bytes()
+
+
 @pytest.mark.parametrize('bad_price', ['NaN', 'Infinity', '-Infinity', '-0.01', '0',
                                         '2.001', '100000.01', '', None, True, 'abc'])
 def test_invalid_prices_never_create_records(client, bad_price):

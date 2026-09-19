@@ -28,8 +28,18 @@ test('cloud schema protects each account and preserves reviewed records transact
     grant usage on sequence storage.objects_id_seq to authenticated;
   `);
   const schema = await readFile(new URL('../cloud/schema.sql', import.meta.url), 'utf8');
-  await db.exec(schema);
-  await db.exec(schema); // The published setup script can safely be re-run.
+  // Reconstruct the pre-favorites schema so the standalone migration is tested
+  // against existing records, function grants, and account policies.
+  const legacySchema = schema
+    .replace(/  is_favorite boolean not null default false,\r?\n/, '')
+    .replace(/alter table public\.pantry_items add column if not exists is_favorite boolean not null default false;\r?\n/, '')
+    .replace(/  if data \? 'is_favorite'[\s\S]*?updated\.is_favorite := coalesce\(\(data->>'is_favorite'\)::boolean,false\);\r?\n/, '')
+    .replace('pack_count,notes,is_favorite)', 'pack_count,notes)')
+    .replace('updated.notes,updated.is_favorite)', 'updated.notes)')
+    .replace('notes=updated.notes,is_favorite=updated.is_favorite,', 'notes=updated.notes,');
+  assert.doesNotMatch(legacySchema, /is_favorite/);
+  await db.exec(legacySchema);
+  await db.exec(legacySchema);
   async function asUser(id = OWNER, role = 'authenticated') {
     await db.exec('reset role');
     await db.query("select set_config('request.jwt.claim.sub',$1,false)", [id]);
@@ -53,6 +63,7 @@ test('cloud schema protects each account and preserves reviewed records transact
       priceId = await addPrice(itemId, { price: '0.29', observed_on: '2026-09-19' });
       await save({ name: 'Wholegrain oats' }, itemId);
       let data = await snapshot();
+      assert.equal(data.items[0].is_favorite, undefined);
       assert.equal(data.items[0].pack_count, 1);
       assert.equal(data.prices[0].amount_fils, 29);
       assert.equal(data.nutrition_labels.length, 1);
@@ -61,6 +72,49 @@ test('cloud schema protects each account and preserves reviewed records transact
       assert.equal((await snapshot()).nutrition_labels.length, 1);
       await save({ nutrition: { ...nutrition, basis: 'per serving' } }, itemId);
       assert.equal((await snapshot()).nutrition_labels.length, 2);
+    });
+
+    await t.test('standalone favorites migration preserves existing records and can run twice', async () => {
+      const before = await snapshot();
+      before.items.forEach(item => { item.is_favorite = false; });
+      const migration = await readFile(new URL('../cloud/migrations/20260919_favorites.sql', import.meta.url), 'utf8');
+      const saveFunction = text => text.match(/create or replace function public\.pantry_save_item\([\s\S]*?end \$\$;/)[0].replace(/\r\n/g, '\n');
+      assert.equal(saveFunction(migration), saveFunction(schema));
+      await db.exec('reset role');
+      const permissions = async () => (await db.query(`select proacl, prosecdef, proconfig from pg_proc
+        where oid = 'public.pantry_save_item(jsonb,bigint)'::regprocedure`)).rows;
+      const originalPermissions = await permissions();
+      await db.exec(migration);
+      await db.exec(migration);
+      assert.deepEqual(await permissions(), originalPermissions);
+      await asUser();
+      assert.deepEqual(await snapshot(), before);
+      await db.exec('reset role');
+      await db.exec(schema);
+      await db.exec(schema); // Full setup also remains safe to re-run.
+      await asUser();
+      assert.deepEqual(await snapshot(), before);
+    });
+
+    await t.test('favorites accept only booleans and partial edits preserve unrelated records', async () => {
+      const before = await snapshot();
+      for (const is_favorite of [true, false, true]) {
+        await save({ is_favorite }, itemId);
+        const after = await snapshot();
+        assert.equal(after.items[0].is_favorite, is_favorite);
+        const { is_favorite: _favorite, updated_at: _updated, ...currentItem } = after.items[0];
+        const { is_favorite: _oldFavorite, updated_at: _oldUpdated, ...previousItem } = before.items[0];
+        assert.deepEqual(currentItem, previousItem);
+        for (const table of ['sources', 'prices', 'nutrition_labels', 'item_sources']) assert.deepEqual(after[table], before[table]);
+      }
+      await save({ notes: 'Favorite oats' }, itemId);
+      assert.equal((await snapshot()).items[0].is_favorite, true);
+      const saved = await snapshot();
+      for (const is_favorite of [null, 0, 1, 'true', 'false', '', [], {}]) {
+        await assert.rejects(save({ is_favorite }, itemId), /true or false/);
+        await assert.rejects(save({ name: 'Invalid favorite', is_favorite }), /true or false/);
+        assert.deepEqual(await snapshot(), saved);
+      }
     });
 
     await t.test('rejects invalid money, dates, pages and changed pack sizes without mutation', async () => {
@@ -92,6 +146,10 @@ test('cloud schema protects each account and preserves reviewed records transact
       await save({ source_ids: [sourceId] }, itemId);
       assert.equal((await snapshot()).item_sources.length, 1);
       await save({ notes: 'Keep original' }, itemId);
+      assert.equal((await snapshot()).item_sources.length, 1);
+      await save({ is_favorite: false }, itemId);
+      assert.equal((await snapshot()).item_sources.length, 1);
+      await save({ is_favorite: true }, itemId);
       assert.equal((await snapshot()).item_sources.length, 1);
       await save({ source_ids: [] }, itemId);
       assert.equal((await snapshot()).item_sources.length, 0);
@@ -131,6 +189,7 @@ test('cloud schema protects each account and preserves reviewed records transact
       assert.deepEqual((await db.query('select * from public.pantry_items')).rows, []);
       assert.deepEqual((await db.query('select * from storage.objects')).rows, []);
       await assert.rejects(save({ name: 'Stolen' }, itemId), /not found/);
+      await assert.rejects(save({ is_favorite: false }, itemId), /not found/);
       await assert.rejects(save({ name: 'Wrong source', source_ids: [sourceId] }), /not found/);
       await assert.rejects(addPrice(itemId, { price: '1', observed_on: '2026-09-19' }), /not found/);
       await assert.rejects(rpc('pantry_delete_price', [priceId], ['bigint']), /not found/);
@@ -141,6 +200,7 @@ test('cloud schema protects each account and preserves reviewed records transact
       assert.equal((await snapshot()).items[0].id, own);
       await asUser();
       assert.equal((await snapshot()).items.length, 2);
+      assert.equal((await snapshot()).items.find(item => item.id === itemId).is_favorite, true);
     });
 
     await t.test('browser adapter uses the RPC contract and exports every original in a verified backup', async () => {
@@ -235,12 +295,17 @@ test('cloud schema protects each account and preserves reviewed records transact
       const library = await adapter.api('/api/items');
       assert.equal(library.items.length, 2);
       const oats = library.items.find(item => item.id === itemId);
+      assert.equal(oats.is_favorite, true);
       assert.equal(oats.nutrition_history.length, 2);
       assert.equal(oats.prices.find(price => price.id === priceId).price, 0.29);
       assert.equal(oats.prices.find(price => price.id === priceId).week_start, '2026-09-14');
       assert.ok(!('owner_id' in oats));
-      const created = await adapter.api('/api/items', { method: 'POST', body: JSON.stringify({ name: 'Adapter food', source_ids: [sourceId] }) });
+      const created = await adapter.api('/api/items', { method: 'POST', body: JSON.stringify({ name: 'Adapter food', source_ids: [sourceId], is_favorite: true }) });
+      assert.equal(created.is_favorite, true);
       assert.match(created.sources[0].url, /^https:\/\/private.example\//);
+      const unfavorited = await adapter.api(`/api/items/${created.id}`, { method: 'PUT', body: JSON.stringify({ is_favorite: false }) });
+      assert.equal(unfavorited.is_favorite, false);
+      assert.deepEqual(unfavorited.sources, created.sources);
       const added = await adapter.api(`/api/items/${created.id}/prices`, { method: 'POST', body: JSON.stringify({ price: '3.49', observed_on: '2026-09-21' }) });
       assert.equal(added.price, 3.49);
       assert.equal(added.week_start, '2026-09-21');
@@ -267,6 +332,7 @@ test('cloud schema protects each account and preserves reviewed records transact
       const backup = JSON.parse(await downloadedBlob.text());
       assert.equal(backup.format_version, 1);
       assert.equal(backup.records.nutrition_labels.length, 2);
+      assert.equal(backup.records.items.find(item => item.id === itemId).is_favorite, true);
       assert.deepEqual(Buffer.from(backup.files[0].data_base64, 'base64'), Buffer.from(bytes));
       assert.equal(backup.files[0].checksum, checksum);
       assert.ok(!JSON.stringify(backup).includes('public-test-key'));

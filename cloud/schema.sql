@@ -13,9 +13,11 @@ create table if not exists public.pantry_items (
   package_unit text not null default 'each' check (package_unit in ('g','kg','ml','L','each')),
   pack_count integer not null default 1 check (pack_count between 1 and 1000),
   notes text not null default '' check (length(notes) <= 5000),
+  is_favorite boolean not null default false,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   unique (id, owner_id)
 );
+alter table public.pantry_items add column if not exists is_favorite boolean not null default false;
 create table if not exists public.pantry_sources (
   id bigint generated always as identity primary key,
   owner_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
@@ -182,6 +184,10 @@ begin
   if data->>'package_size' is not null and data->>'package_size' <> '' then updated.package_size := public.pantry_number(data->'package_size','Pack size',100000); end if;
   updated.pack_count := public.pantry_number(coalesce(data->'pack_count','1'),'Pack count',1000,true)::integer;
   updated.notes := public.pantry_text(data->'notes',5000);
+  if data ? 'is_favorite' and jsonb_typeof(data->'is_favorite') is distinct from 'boolean' then
+    raise exception 'Favorite must be true or false.';
+  end if;
+  updated.is_favorite := coalesce((data->>'is_favorite')::boolean,false);
   if p_item_id is not null and (updated.package_size is distinct from old.package_size or updated.package_unit <> old.package_unit or updated.pack_count <> old.pack_count)
     and exists(select 1 from public.pantry_prices where item_id=p_item_id and owner_id=owner) then
     raise exception 'This pack already has price history. Add a separate item for a different pack size so prices stay comparable.';
@@ -194,11 +200,11 @@ begin
     if not exists(select 1 from public.pantry_sources where id=source_id and owner_id=owner) then raise exception 'Source file was not found.'; end if;
   end loop;
   if p_item_id is null then
-    insert into public.pantry_items(owner_id,name,brand,category,package_size,package_unit,pack_count,notes)
-    values(owner,updated.name,updated.brand,updated.category,updated.package_size,updated.package_unit,updated.pack_count,updated.notes) returning id into p_item_id;
+    insert into public.pantry_items(owner_id,name,brand,category,package_size,package_unit,pack_count,notes,is_favorite)
+    values(owner,updated.name,updated.brand,updated.category,updated.package_size,updated.package_unit,updated.pack_count,updated.notes,updated.is_favorite) returning id into p_item_id;
   else
     update public.pantry_items set name=updated.name,brand=updated.brand,category=updated.category,package_size=updated.package_size,
-      package_unit=updated.package_unit,pack_count=updated.pack_count,notes=updated.notes,updated_at=now() where id=p_item_id and owner_id=owner;
+      package_unit=updated.package_unit,pack_count=updated.pack_count,notes=updated.notes,is_favorite=updated.is_favorite,updated_at=now() where id=p_item_id and owner_id=owner;
   end if;
   if nutrition is not null then
     select content into latest from public.pantry_nutrition_labels where item_id=p_item_id and owner_id=owner order by id desc limit 1;

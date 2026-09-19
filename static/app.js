@@ -19,6 +19,7 @@ const icons = {
   trash:'<path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>',
   up:'<path d="M12 20V4m-6 6 6-6 6 6"/>',
   down:'<path d="M12 4v16m-6-6 6 6 6-6"/>',
+  star:'<path d="m12 3 2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9L12 3Z"/>',
   check:'<path d="m5 12 4 4L19 6"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/>',
   external:'<path d="M14 3h7v7m0-7-11 11M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>',
@@ -30,7 +31,7 @@ const today = () => {const d=new Date(); return `${d.getFullYear()}-${String(d.g
 const date = (value, short=false) => {if(!value)return 'Date not recorded';const d=new Date(`${String(value).slice(0,10)}T12:00:00`);return Number.isNaN(d.getTime())?String(value):d.toLocaleDateString('en-GB',{day:'numeric',month:'short',...(short?{}:{year:'numeric'})});};
 const week = value => {const d=new Date(`${String(value).slice(0,10)}T12:00:00Z`); if(Number.isNaN(d.getTime()))return null;d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7);return d.toISOString().slice(0,10);};
 const defaults = [{label:'Energy',value:'',unit:'kcal'},{label:'Protein',value:'',unit:'g'},{label:'Carbohydrate',value:'',unit:'g'},{label:'of which sugars',value:'',unit:'g'},{label:'Fat',value:'',unit:'g'},{label:'of which saturates',value:'',unit:'g'},{label:'Fibre',value:'',unit:'g'},{label:'Salt',value:'',unit:'g'}];
-const state = {items:[],sources:[],info:{},filter:'',category:'',routeVersion:0,importSource:null,extraction:null,importRows:[],editorSources:[],nutritionSuggestion:null,editorBusy:false};
+const state = {items:[],sources:[],info:{},filter:'',category:'',favoriteFilter:'all',favoritePending:new Set(),favoriteVersions:new Map(),routeVersion:0,importSource:null,extraction:null,importRows:[],editorSources:[],nutritionSuggestion:null,editorBusy:false};
 const main = document.querySelector('#main');
 const editor = document.querySelector('#editor-dialog');
 const smallDialog = document.querySelector('#small-dialog');
@@ -60,6 +61,45 @@ function updateCounts(){document.querySelector('#nav-count').textContent=state.i
 function setNav(name){document.querySelectorAll('[data-nav]').forEach(a=>{const active=a.dataset.nav===name;a.classList.toggle('active',active);active?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current');});document.querySelector('#breadcrumb').textContent=name==='imports'?'WEEKLY OFFERS':'MY FOOD LIBRARY';}
 async function refreshItems(){const data=await api('/api/items');state.items=data.items||[];updateCounts();}
 
+function favoriteButton(item,detail=false){
+  const selected=Boolean(item.is_favorite),busy=state.favoritePending.has(String(item.id));
+  const label=`${selected?'Remove':'Add'} ${item.name} ${selected?'from':'to'} favorites`;
+  return `<button class="favorite-toggle ${detail?'detail-favorite':'card-favorite'}" type="button" data-action="toggle-favorite" data-id="${e(item.id)}" aria-pressed="${selected}" aria-label="${e(label)}" title="${e(label)}" ${busy?'disabled aria-busy="true"':''}>${icon('star')}${detail?'<span>Favorite</span>':''}</button>`;
+}
+function favoriteMatches(item){return state.favoriteFilter==='all'||(state.favoriteFilter==='favorite'?Boolean(item.is_favorite):!item.is_favorite);}
+function updateFavoriteButtons(id){
+  const item=state.items.find(i=>String(i.id)===String(id));if(!item)return;
+  document.querySelectorAll('[data-action="toggle-favorite"]').forEach(button=>{
+    if(button.dataset.id!==String(id))return;
+    const selected=Boolean(item.is_favorite),busy=state.favoritePending.has(String(id));
+    const label=`${selected?'Remove':'Add'} ${item.name} ${selected?'from':'to'} favorites`;
+    button.setAttribute('aria-pressed',String(selected));button.setAttribute('aria-label',label);button.title=label;button.disabled=busy;
+    if(busy)button.setAttribute('aria-busy','true');else button.removeAttribute('aria-busy');
+  });
+}
+async function toggleFavorite(button){
+  const id=button.dataset.id,item=state.items.find(i=>String(i.id)===id);
+  if(!item||state.favoritePending.has(id))return;
+  const selected=!item.is_favorite;
+  state.favoritePending.add(id);updateFavoriteButtons(id);
+  try{
+    const saved=await api(`/api/items/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify({is_favorite:selected})});
+    if(String(saved.id)!==id||saved.is_favorite!==selected)throw new Error('The favorite could not be confirmed. Please try again.');
+    const current=state.items.find(i=>String(i.id)===id);if(current)current.is_favorite=saved.is_favorite;
+    state.favoriteVersions.set(id,(state.favoriteVersions.get(id)||0)+1);
+    toast(selected?'Added to favorites.':'Removed from favorites.');
+  }catch(err){toast(`Could not save favorite: ${err.message}`);}
+  finally{
+    state.favoritePending.delete(id);
+    // Only update controls on the current page; the user may have navigated during the save.
+    if(document.querySelector('#library-grid')){
+      const focused=document.activeElement,restoreFocus=focused===button||focused?.dataset?.action==='toggle-favorite'&&focused.dataset.id===id;
+      drawCards();
+      if(restoreFocus){const remaining=[...document.querySelectorAll('[data-action="toggle-favorite"]')].find(node=>node.dataset.id===id);(remaining||document.querySelector('[data-action="filter-favorites"][aria-pressed="true"]'))?.focus();}
+    }else updateFavoriteButtons(id);
+  }
+}
+
 function pantryDrawing(){return `<div class="pantry-drawing" aria-hidden="true"><svg viewBox="0 0 210 190" fill="none"><ellipse cx="105" cy="164" rx="78" ry="9" fill="#d8e2cb"/><path d="M48 75h67l-5 82H54L48 75Z" fill="#d2c598" stroke="#9d986e" stroke-width="1.4"/><path d="M58 75c0-32 37-32 37 0" stroke="#9d986e" stroke-width="3"/><path d="m75 98 15 0 4 31-20 0 1-31Z" fill="#f5f4de"/><path d="M78 109h10m-10 5h10" stroke="#a1ad82"/><rect x="111" y="83" width="45" height="75" rx="6" fill="#f8f3d9" stroke="#abae8b" stroke-width="1.4"/><path d="M118 68h31v16h-31z" fill="#65836b"/><path d="M118 101h31v36h-31z" fill="#dce7cc"/><path d="M134 124c-10-5-9-14 0-17 9 3 10 12 0 17Z" fill="#90a477"/><path d="M134 124v5" stroke="#6f8b67"/><path d="M151 157c-7-28 4-60 10-72" stroke="#6a885e" stroke-width="3" stroke-linecap="round"/><path d="M156 121c-24 1-31-18-27-22 16-2 24 10 27 22Zm2-12c21-4 27-17 25-25-18 0-25 12-25 25Z" fill="#78986c"/><path d="M153 137c16-2 30-10 29-20-17-2-26 8-29 20Z" fill="#9db28a"/></svg></div>`;}
 
 function renderLibrary(){
@@ -69,12 +109,20 @@ function renderLibrary(){
   const categories=[...new Set(state.items.map(i=>i.category).filter(Boolean))].sort();
   main.innerHTML=`<div class="page-heading"><div><div class="eyebrow">A SMALL HABIT. A SMARTER SHOP.</div><h1>Your food, at a glance.</h1><p class="subtitle">The foods you buy, the labels you keep, and what you pay.</p></div><button class="button primary" data-action="new-item" aria-label="Add a food item">${icon('plus')}<span class="button-label">Add food item</span></button></div>
   <div class="stat-row"><div class="stat"><span class="stat-icon">${icon('bag')}</span><div><div class="stat-label">IN YOUR LIBRARY</div><div class="stat-value">${state.items.length}<span>food ${state.items.length===1?'item':'items'}</span></div></div></div><div class="stat"><span class="stat-icon">${icon('leaf')}</span><div><div class="stat-label">NUTRITION RECORDED</div><div class="stat-value">${nutritionCount}<span>${nutritionCount===1?'food':'foods'} recorded</span></div></div></div><div class="stat"><span class="stat-icon">${icon('chart')}</span><div><div class="stat-label">PRICES COLLECTED</div><div class="stat-value">${priceCount}<span>${priceCount===1?'observation':'observations'}</span></div></div></div></div>
-  ${state.items.length?`<div class="library-tools"><label class="search-field"><span>${icon('search')}</span><span class="sr-only">Search your food library</span><input id="food-search" type="search" placeholder="Search foods…" value="${e(state.filter)}" autocomplete="off"></label><span class="result-count" id="result-count"></span><select id="category-filter" class="filter-select" aria-label="Filter by category"><option value="">All categories</option>${categories.map(c=>`<option ${state.category===c?'selected':''} value="${e(c)}">${e(c)}</option>`).join('')}</select></div><div class="library-grid" id="library-grid"></div>`:
+  ${state.items.length?`<div class="library-tools"><label class="search-field"><span>${icon('search')}</span><span class="sr-only">Search your food library</span><input id="food-search" type="search" placeholder="Search foods…" value="${e(state.filter)}" autocomplete="off"></label><span class="result-count" id="result-count"></span><select id="category-filter" class="filter-select" aria-label="Filter by category"><option value="">All categories</option>${categories.map(c=>`<option ${state.category===c?'selected':''} value="${e(c)}">${e(c)}</option>`).join('')}</select></div><div class="favorite-filters" role="group" aria-label="Filter by favorites">${[['all','All'],['favorite','Favorite'],['others','Others']].map(([value,label])=>`<button type="button" data-action="filter-favorites" data-filter="${value}" aria-pressed="${state.favoriteFilter===value}">${label}</button>`).join('')}</div><div class="library-grid" id="library-grid"></div>`:
   `<section class="empty-state"><div class="empty-main"><div><div class="eyebrow">LET’S STOCK YOUR LIBRARY</div><h2>A home for your everyday favourites.</h2><p>Start with a photo of your food and its nutrition label. Add its price, then watch the story grow each week.</p><button class="button primary" data-action="new-item">${icon('camera')}Add your first food</button></div>${pantryDrawing()}</div><div class="empty-steps"><div><div class="step-number"><span>1</span>Keep the label</div><p>Add food photos and review the nutrition facts.</p></div><div><div class="step-number"><span>2</span>Bring in the offers</div><p>Upload Viva’s weekly PDF and confirm matching products.</p></div><div><div class="step-number"><span>3</span>See the bigger picture</div><p>Compare the same pack’s prices, week by week.</p></div></div></section>`}
   <button class="button subtle library-csv-button" data-action="import-csv">${icon('document')}Import foods from CSV</button><div class="tip-strip"><span>${icon('info')}</span><div>One item for each brand and pack size keeps your price comparisons meaningful.</div></div>`;
   if(state.items.length){drawCards();document.querySelector('#food-search').addEventListener('input',event=>{state.filter=event.target.value;drawCards();});document.querySelector('#category-filter').addEventListener('change',event=>{state.category=event.target.value;drawCards();});}
 }
-function drawCards(){const items=state.items.filter(i=>(!state.category||i.category===state.category)&&`${i.name} ${i.brand||''} ${i.category||''}`.toLowerCase().includes(state.filter.toLowerCase()));document.querySelector('#result-count').textContent=`${items.length} ${items.length===1?'item':'items'}`;document.querySelector('#library-grid').innerHTML=items.length?items.map(item=>{const prices=latestPrices(item),latest=prices[0],photo=imageSource(item);return `<a class="food-card" href="#item/${e(item.id)}"><div class="food-card-image">${photo?`<img src="${e(photo.url)}" alt="${e(item.name)}" loading="lazy">`:`<span class="food-placeholder">${icon('bag')}</span>`}${item.category?`<span class="category-pill">${e(item.category)}</span>`:''}</div><div class="card-body"><div class="food-brand">${e(item.brand||'YOUR FOOD LIBRARY')}</div><h3>${e(item.name)}</h3><div class="food-size">${e(packageText(item))}</div><div class="food-price-row">${latest?`<div><div class="card-price"><small>AED</small>${money(latest.price)}</div><div class="price-sub">Recorded ${e(date(latest.observed_on,true))}</div>${offerValidity(latest)}</div>${changeMarkup(prices)}`:'<div class="card-no-price">Add a first price</div>'}</div></div></a>`;}).join(''):`<div class="no-results">No foods match this search. Try another name or category.</div>`;}
+function drawCards(){
+  const grid=document.querySelector('#library-grid');if(!grid)return;
+  const items=state.items.filter(i=>favoriteMatches(i)&&(!state.category||i.category===state.category)&&`${i.name} ${i.brand||''} ${i.category||''}`.toLowerCase().includes(state.filter.toLowerCase()));
+  document.querySelector('#result-count').textContent=`${items.length} ${items.length===1?'item':'items'}`;
+  grid.innerHTML=items.length?items.map(item=>{
+    const prices=latestPrices(item),latest=prices[0],photo=imageSource(item);
+    return `<article class="food-card"><a class="food-card-link" href="#item/${e(item.id)}"><div class="food-card-image">${photo?`<img src="${e(photo.url)}" alt="${e(item.name)}" loading="lazy">`:`<span class="food-placeholder">${icon('bag')}</span>`}${item.category?`<span class="category-pill">${e(item.category)}</span>`:''}</div><div class="card-body"><div class="food-brand">${e(item.brand||'YOUR FOOD LIBRARY')}</div><h3>${e(item.name)}</h3><div class="food-size">${e(packageText(item))}</div><div class="food-price-row">${latest?`<div><div class="card-price"><small>AED</small>${money(latest.price)}</div><div class="price-sub">Recorded ${e(date(latest.observed_on,true))}</div>${offerValidity(latest)}</div>${changeMarkup(prices)}`:'<div class="card-no-price">Add a first price</div>'}</div></div></a>${favoriteButton(item)}</article>`;
+  }).join(''):`<div class="no-results" role="status">${state.filter||state.category?'No foods match these filters. Try another name or category.':state.favoriteFilter==='favorite'?'No favorites yet. Tap the star on a food to add it here.':state.favoriteFilter==='others'?'All your foods are favorites. Choose All to see them.':'No foods match these filters.'}</div>`;
+}
 
 function makeChart(prices){
   const data=prices.filter(p=>week(p.observed_on)&&Number.isFinite(Number(p.price)));
@@ -94,8 +142,9 @@ function makeChart(prices){
 }
 async function renderDetail(id,version){
   setNav('library');main.innerHTML=loading('Opening this food…');
-  try{const item=await api(`/api/items/${encodeURIComponent(id)}`);if(version!==state.routeVersion)return;const prices=latestPrices(item),latest=prices[0],nutrition=item.nutrition||{},values=(nutrition.values||[]).filter(v=>v.value!==''&&v.value!=null),sources=item.sources||[];
-  main.innerHTML=`<a class="back-link" href="#library">${icon('back')}Back to your library</a><div class="detail-heading"><div class="page-heading"><div><div class="eyebrow">${e(item.brand||'IN YOUR PANTRY')}</div><h1>${e(item.name)}</h1><p class="subtitle">${e(packageText(item))}</p><div class="detail-top-meta">${item.category?`<span class="pill">${e(item.category)}</span>`:''}<span class="pill">${prices.length} price ${prices.length===1?'record':'records'}</span></div></div><button class="button secondary" data-action="edit-item" data-id="${e(item.id)}" aria-label="Edit ${e(item.name)}">${icon('edit')}<span class="button-label">Edit item</span></button></div></div>
+  const favoriteVersion=state.favoriteVersions.get(String(id))||0;
+  try{const item=await api(`/api/items/${encodeURIComponent(id)}`);if(version!==state.routeVersion)return;const cached=state.items.find(i=>String(i.id)===String(id));if(cached){if(state.favoritePending.has(String(id))||(state.favoriteVersions.get(String(id))||0)!==favoriteVersion)item.is_favorite=cached.is_favorite;else cached.is_favorite=Boolean(item.is_favorite);}const prices=latestPrices(item),latest=prices[0],nutrition=item.nutrition||{},values=(nutrition.values||[]).filter(v=>v.value!==''&&v.value!=null),sources=item.sources||[];
+  main.innerHTML=`<a class="back-link" href="#library">${icon('back')}Back to your library</a><div class="detail-heading"><div class="page-heading"><div><div class="eyebrow">${e(item.brand||'IN YOUR PANTRY')}</div><h1>${e(item.name)}</h1><p class="subtitle">${e(packageText(item))}</p><div class="detail-top-meta">${item.category?`<span class="pill">${e(item.category)}</span>`:''}<span class="pill">${prices.length} price ${prices.length===1?'record':'records'}</span></div></div><div class="detail-actions">${favoriteButton(item,true)}<button class="button secondary" data-action="edit-item" data-id="${e(item.id)}" aria-label="Edit ${e(item.name)}">${icon('edit')}<span class="button-label">Edit item</span></button></div></div></div>
   <div class="detail-layout"><div><section class="panel"><div class="panel-heading"><div><h2>A little price perspective.</h2><p>Weekly price history · AED</p></div><button class="button primary" data-action="add-price" data-id="${e(item.id)}">${icon('plus')}Add price</button></div>${latest?`<div class="price-summary"><div><div class="latest-price"><small>AED</small>${money(latest.price)}</div><div class="latest-meta">Last recorded ${e(date(latest.observed_on))} · ${e(latest.kind)}</div>${offerValidity(latest)}</div><div>${changeMarkup(prices)}${prices.length>1?'<div class="price-sub">vs previous recorded price</div>':''}<div class="unit-price">${e(unitPrice(item,latest.price))}</div></div></div>`:''}${makeChart(prices)}</section>
   <section class="panel"><div class="panel-heading"><h2>The price notebook</h2><span class="muted" style="font-size:10px">Every observation, kept.</span></div>${prices.length?`<div class="table-scroll"><table class="history-table"><caption class="sr-only">All recorded prices, newest first</caption><thead><tr><th>Date</th><th>Price</th><th>Type</th><th>Source</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${prices.map(p=>{const source=sources.find(s=>String(s.id)===String(p.source_id))||state.sources.find(s=>String(s.id)===String(p.source_id));return `<tr><td>${e(date(p.observed_on))}${p.valid_to?`<div class="muted">until ${e(date(p.valid_to,true))}</div>`:''}</td><td class="amount">AED ${money(p.price)}</td><td><span class="offer-pill ${e(p.kind)}">${e(p.kind)}</span></td><td>${p.source_id&&(source?.url||!cloudEnabled())?`<a class="text-link" href="${e(source?.url||`/api/sources/${p.source_id}/file`)}${p.page?`#page=${p.page}`:''}" target="_blank" rel="noopener">${p.page?`Page ${e(p.page)}`:'Original'}</a>${p.notes?`<div class="history-note">${e(p.notes)}</div>`:''}`:`<span class="muted">${e(p.notes||'Manual entry')}</span>`}</td><td><button class="icon-button" data-action="delete-price" data-id="${e(p.id)}" data-item="${e(item.id)}" aria-label="Delete AED ${money(p.price)} price from ${e(date(p.observed_on))}">${icon('trash')}</button></td></tr>`;}).join('')}</tbody></table></div>`:'<p class="inline-empty">Shelf prices, weekly offers, and what you actually paid will all appear here.</p>'}</section></div>
   <div class="detail-side"><section class="panel"><div class="panel-heading"><h2>What’s on the label</h2><span>${icon('leaf')}</span></div>${values.length?`<p class="nutrition-basis">${e(nutrition.basis||'As recorded on label')}${nutrition.serving_size?` · Serving ${e(nutrition.serving_size)}`:''}</p><table class="nutrition-table"><caption class="sr-only">Nutrition facts, ${e(nutrition.basis)}</caption><tbody>${values.map(v=>`<tr><td>${e(v.label)}</td><td>${e(v.value)} ${e(v.unit)}</td></tr>`).join('')}</tbody></table><p class="nutrition-note">Nutrition as recorded. Check the original label and any source notes.</p>`:`<p class="inline-empty">Keep the nutrition facts beside the prices. Add a label photo, then review and save its values.</p><button class="button subtle" data-action="edit-item" data-id="${e(item.id)}">${icon('plus')}Add nutrition facts</button>`}</section>
@@ -239,7 +288,9 @@ document.addEventListener('click',async event=>{
   if(cloudEnabled()&&!state.booted&&action!=='phone-access'){event.preventDefault();toast('Sign in to open your pantry.');return;}
   if(action==='backup'){if(cloudEnabled()){event.preventDefault();await downloadCloudBackup(button);}return;}
   if(action==='sign-out'){event.preventDefault();await signOutCloud();return;}
-  if(action==='new-item')await openEditor();
+  if(action==='toggle-favorite'){event.preventDefault();await toggleFavorite(button);}
+  else if(action==='filter-favorites'){state.favoriteFilter=button.dataset.filter;document.querySelectorAll('[data-action=filter-favorites]').forEach(node=>node.setAttribute('aria-pressed',String(node.dataset.filter===state.favoriteFilter)));drawCards();}
+  else if(action==='new-item')await openEditor();
   else if(action==='edit-item')await openEditor(button.dataset.id);
   else if(action==='phone-access')showPhoneAccess();
   else if(action==='close-editor'){if(state.editorBusy){photoMessage('Please wait for the current save to finish.');return;}editor.close();}

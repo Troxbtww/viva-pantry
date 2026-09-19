@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS items (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL DEFAULT '',
  category TEXT NOT NULL DEFAULT 'Other', package_size REAL, package_unit TEXT NOT NULL DEFAULT 'each',
  pack_count INTEGER NOT NULL DEFAULT 1, notes TEXT NOT NULL DEFAULT '',
+ is_favorite INTEGER NOT NULL DEFAULT 0 CHECK(is_favorite IN (0, 1)),
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sources (
@@ -111,6 +112,9 @@ def create_app(data_dir=None, testing=False):
         app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
     with closing(sqlite3.connect(folder / 'viva.sqlite3')) as connection:
         connection.executescript(SCHEMA)
+        if 'is_favorite' not in {column[1] for column in connection.execute('PRAGMA table_info(items)')}:
+            connection.execute('ALTER TABLE items ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0 CHECK(is_favorite IN (0, 1))')
+        connection.commit()
         connection.execute('PRAGMA journal_mode=WAL')
     login_attempts = {}
     extraction_lock = threading.Lock()
@@ -147,6 +151,7 @@ def create_app(data_dir=None, testing=False):
 
     def item_dict(row):
         result = dict(row)
+        result['is_favorite'] = bool(row['is_favorite'])
         item_id = row['id']
         labels = db().execute('SELECT * FROM nutrition_labels WHERE item_id=? ORDER BY id DESC', (item_id,)).fetchall()
         result['nutrition'] = json.loads(labels[0]['content']) if labels else {'basis': 'per 100 g', 'serving_size': '', 'values': []}
@@ -263,6 +268,8 @@ def create_app(data_dir=None, testing=False):
     @app.route('/api/items/<int:item_id>', methods=['PUT'])
     def save_item(item_id=None):
         data = payload()
+        if 'is_favorite' in data and not isinstance(data['is_favorite'], bool):
+            raise ValueError('Favorite must be true or false.')
         old = dict(get_row('items', item_id)) if item_id else {}
         data = {**old, **data}
         fields = {
@@ -271,7 +278,8 @@ def create_app(data_dir=None, testing=False):
             'package_size': positive(data['package_size'], 'Pack size') if data.get('package_size') not in (None, '') else None,
             'package_unit': text(data.get('package_unit') or 'each', 10),
             'pack_count': positive(data.get('pack_count', 1), 'Pack count', True, 1000),
-            'notes': text(data.get('notes'), 5000), 'updated_at': now(),
+            'notes': text(data.get('notes'), 5000), 'is_favorite': bool(data.get('is_favorite', False)),
+            'updated_at': now(),
         }
         if fields['package_unit'] not in ('g', 'kg', 'ml', 'L', 'each'):
             raise ValueError('Choose g, kg, ml, L or each for the pack unit.')

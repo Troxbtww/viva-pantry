@@ -22,6 +22,8 @@ As checked on 19 September 2026, the Supabase Free plan includes 500 MB database
 
 Nutrition and prices are independent. Label revisions are retained in the database. Flyer imports never erase nutrition. Different pack sizes should be separate items; an item with prices cannot be relabelled as a different pack.
 
+Tap the star on a food card or its item page to add or remove a favorite. Use **All**, **Favorite**, and **Others** above the library to show every food, your favorites, or foods you have not favorited. These filters work with search and category. Favorites are saved to your account and appear when you sign in on another device. Existing foods start without a favorite star.
+
 Use **Import foods from CSV** in the library to bring in a food database export with Food, Package qty, Package unit, Nutrition basis qty and nutrient columns. Choose the file or paste its contents, review the rows, then import. Imported nutrition remains marked for review; source confidence, estimates and notes are retained. Prices without observation dates are saved as undated references in item notes. Missing package quantities stay blank. Re-importing the same name and pack skips the existing item, preserving its photos and edits.
 
 To date those prices, choose **Record prices for existing foods** in the CSV importer, select the observation date and price type, and review the matching items. Exact duplicate observations are skipped. Conflicting prices or ambiguous food matches need manual review. Recording prices preserves nutrition and photos and updates the old undated reference in the item's notes.
@@ -51,6 +53,8 @@ npm test
 Serve `static/` with an HTTP server for the cloud preview. The build bundles the SDK and copies PDF/OCR assets and the English language model; no runtime CDN is needed. Vendor output is ignored by Git and built during deployment.
 
 Run `cloud/schema.sql` in the intended Supabase project's SQL editor. It creates owner-scoped records, a private storage bucket, transactional write functions and explicit privileges. It is safe to rerun for this app. Configure only the public project URL and publishable/anon key in `static/cloud-config.js`.
+
+For an existing installation, `cloud/migrations/20260919_favorites.sql` adds favorites while preserving records and access rules. Run it before publishing the favorites interface. Local SQLite installations migrate automatically on startup.
 
 Set the complete GitHub Pages URL, including its repository path and trailing slash, as Supabase's Authentication Site URL and allowed Redirect URL. The GitHub Actions workflow publishes `static/` from the `codex/viva-pantry` branch. Personal files, backups, credentials and local databases are excluded from Git.
 
