@@ -151,7 +151,7 @@
         if (item[key].length > limit) throw new Error(`CSV row ${rowNumber}: ${key} is too long (maximum ${limit} characters).`);
       }
       if (basis.length > 100) throw new Error(`CSV row ${rowNumber}: nutrition basis is too long.`);
-      return {item, warnings};
+      return {item, warnings, reference_price: price === null ? null : Number(price), source_note: sourceNote};
     });
   }
 

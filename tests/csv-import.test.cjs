@@ -50,11 +50,13 @@ test('counted packages do not become weights and unknown pack quantities stay mi
 });
 
 test('undated promotional prices stay references with conditions, never price observations', () => {
-  const [{item}] = parse(csv({...base, 'Price (AED)': '12.50',
+  const [{item, reference_price, source_note}] = parse(csv({...base, 'Price (AED)': '12.50',
     'Source / note': 'Promotional price assumes 2 for AED 25', 'Buy priority': 'Useful',
     'Best use / appliance': 'Stove / oven'}), 'D:/private/catalog.csv');
   assert.match(item.notes, /^Imported from catalog\.csv;/);
   assert.match(item.notes, /Undated reference price: AED 12\.50/);
+  assert.equal(reference_price, 12.5);
+  assert.equal(source_note, 'Promotional price assumes 2 for AED 25');
   assert.match(item.notes, /2 for AED 25/);
   assert.match(item.notes, /Source confidence: High .*not independently verified/);
   assert.match(item.notes, /Buy priority \(from CSV\): Useful/);

@@ -24,6 +24,8 @@ Nutrition and prices are independent. Label revisions are retained in the databa
 
 Use **Import foods from CSV** in the library to bring in a food database export with Food, Package qty, Package unit, Nutrition basis qty and nutrient columns. Choose the file or paste its contents, review the rows, then import. Imported nutrition remains marked for review; source confidence, estimates and notes are retained. Prices without observation dates are saved as undated references in item notes. Missing package quantities stay blank. Re-importing the same name and pack skips the existing item, preserving its photos and edits.
 
+To date those prices, choose **Record prices for existing foods** in the CSV importer, select the observation date and price type, and review the matching items. Exact duplicate observations are skipped. Conflicting prices or ambiguous food matches need manual review. Recording prices preserves nutrition and photos and updates the old undated reference in the item's notes.
+
 The chart shows the lowest recorded price of each type in Monday-start weeks. Missing weeks are gaps, never zero or carried-forward prices. Last-recorded prices show their dates; they are not a claim of today's availability. Offer conditions are preserved in notes.
 
 ## Import limits
