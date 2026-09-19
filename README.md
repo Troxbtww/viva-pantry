@@ -2,6 +2,8 @@
 
 A mobile food library with original photos, reviewed nutrition labels, weekly flyer imports, and AED price history.
 
+[Open Viva Pantry](https://troxbtww.github.io/viva-pantry/)
+
 ## Free cloud website
 
 The interface is hosted on GitHub Pages. Supabase Free stores private account records and original files. Image and PDF recognition runs in the browser using bundled PDF.js and Tesseract. There is no paid AI service or paid application server.
