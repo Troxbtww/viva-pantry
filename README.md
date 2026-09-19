@@ -22,6 +22,8 @@ As checked on 19 September 2026, the Supabase Free plan includes 500 MB database
 
 Nutrition and prices are independent. Label revisions are retained in the database. Flyer imports never erase nutrition. Different pack sizes should be separate items; an item with prices cannot be relabelled as a different pack.
 
+Use **Import foods from CSV** in the library to bring in a food database export with Food, Package qty, Package unit, Nutrition basis qty and nutrient columns. Choose the file or paste its contents, review the rows, then import. Imported nutrition remains marked for review; source confidence, estimates and notes are retained. Prices without observation dates are saved as undated references in item notes. Missing package quantities stay blank. Re-importing the same name and pack skips the existing item, preserving its photos and edits.
+
 The chart shows the lowest recorded price of each type in Monday-start weeks. Missing weeks are gaps, never zero or carried-forward prices. Last-recorded prices show their dates; they are not a claim of today's availability. Offer conditions are preserved in notes.
 
 ## Import limits

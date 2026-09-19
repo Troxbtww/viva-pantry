@@ -21,7 +21,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: node --check static/app.js && node --check static/cloud-store.js && node --check static/extractor.js
+      - run: node --check static/app.js && node --check static/cloud-store.js && node --check static/extractor.js && node --check static/csv-import.js && node --check static/csv-ui.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

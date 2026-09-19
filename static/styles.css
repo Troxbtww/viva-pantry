@@ -11,3 +11,5 @@ dialog{background:var(--surface);color:var(--ink);border:1px solid #dce4d4;paddi
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .photo-upload{flex-wrap:wrap}.photo-upload-actions{display:flex;flex-wrap:wrap;gap:8px}.photo-upload .form-help{flex:1 1 230px}
+
+.library-csv-button{margin-top:18px}.csv-food-row{padding:15px 0;border-bottom:1px solid var(--line)}.csv-food-row>label{display:flex;align-items:flex-start;gap:10px}.csv-food-row input{width:auto;min-height:0;margin-top:4px}.csv-food-row strong{font-size:13px}.csv-food-row small{display:block;font-size:11px;color:var(--muted);margin-top:5px}.csv-food-row details{font-size:11px;margin:10px 0 0 24px}.csv-food-row summary{cursor:pointer;color:var(--muted)}.csv-food-row .item-notes{font-size:11px;white-space:pre-wrap}#csv-text{font-family:monospace;font-size:12px;min-height:110px}
